@@ -1,0 +1,28 @@
+version: "3.7"
+
+services:
+  filterd:
+    container_name: filterd
+    environment:
+        - CTRL_FILTERD_CONFIG=/home/lsst/ctrl_filterd/etc/filterd.yml
+    image: ctrl_filterd
+    extra_hosts:
+        - "kafka:127.0.0.1"
+    build:
+      context: ..
+      dockerfile: docker/filterd/Dockerfile
+      args:
+        - LSST_STACK_VERSION
+  testenv-filterd:
+    container_name: testenv-filterd
+    environment:
+        - CTRL_FILTERD_CONFIG=/home/lsst/ctrl_filterd/etc/filterd.yml
+    image: testenv-filterd
+    extra_hosts:
+        - "kafka:127.0.0.1"
+    build:
+      context: ./testenv-filterd
+      args:
+        - LSST_STACK_VERSION
+    volumes:
+      - ${HOME}/rucio/ctrl_filterd:/home/lsst/ctrl_filterd

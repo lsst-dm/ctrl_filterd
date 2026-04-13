@@ -1,0 +1,45 @@
+on:
+  push:
+    tags:
+     - '*'
+  pull_request:
+
+env:
+  FILTERD_NAME: ctrl_filterd
+
+jobs:
+  push:
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      contents: read
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Set tag-based Docker tag
+      id: tag
+      run: |
+        GIT_TAG="${GITHUB_REF_NAME}"
+        VERSION=$(echo "$GIT_TAG" | sed 's#[^a-zA-Z0-9_.-]#-#g')
+        echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+    - name: Echo the Docker tag name
+      run: |
+         echo "Docker image will be tagged as: ${VERSION}"
+
+    - name: Build ingest image
+      run: |
+        docker compose -f "docker/docker-compose.yml" --env-file docker/versions.env build filterd
+
+    - name: Log in to GitHub Container Registry
+      run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u $ --password-stdin
+
+    - name: Push image
+      run: |
+        FILTERD_ID=ghcr.io/${{ github.repository_owner }}/$FILTERD_NAME
+
+        echo FILTERD_ID=$FILTERD_ID
+        echo VERSION=$VERSION
+        docker tag $FILTERD_NAME $FILTERD_ID:$VERSION
+        docker push $FILTERD_ID:$VERSION
