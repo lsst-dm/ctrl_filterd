@@ -1,0 +1,11 @@
+brokers: 
+    - kafka:9092
+
+num_messages: 50
+
+topic: hermestopic
+rse_topics: 
+     - XRD1-test
+     - XRD2-test
+     - XRD3-test
+     - XRD4-test

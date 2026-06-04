@@ -1,0 +1,6 @@
+brokers: 
+    - kafka:9092
+
+num_messages: 50
+
+topic: hermestopic
