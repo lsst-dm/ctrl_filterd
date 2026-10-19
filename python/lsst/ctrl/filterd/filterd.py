@@ -39,7 +39,7 @@ class FilterD:
         if CTRL_FILTERD_CONFIG in os.environ:
             self.config_file = os.environ[CTRL_FILTERD_CONFIG]
         else:
-            raise FileNotFoundError("CTRL_FILTERD_CONFIG is not set")
+            raise RuntimeError("CTRL_FILTERD_CONFIG is not set")
 
         config = Config.load(self.config_file)
 
@@ -48,38 +48,33 @@ class FilterD:
         LOGGER.info("group.id = %s", config.group_id)
         LOGGER.info("producer_client_id = %s", config.producer_client_id)
         LOGGER.info("num_messages = %d", config.num_messages)
-        LOGGER.info("timeout = %d", config.timeout)
+        LOGGER.info("timeout = %s", config.timeout)
         LOGGER.info("topic = %s", config.topic)
         LOGGER.info("rse_topics = %s", ",".join(config.rse_topics))
 
-        consumer_client_id = config.consumer_client_id
-        producer_client_id = config.producer_client_id
-        group_id = config.group_id
         brokers = ",".join(config.brokers)
-        topic = config.topic
-        rse_topics = config.rse_topics
 
         self.num_messages = config.num_messages
         self.timeout = config.timeout
 
         consumer_conf = {
             "bootstrap.servers": brokers,
-            "client.id": consumer_client_id,
-            "group.id": group_id,
+            "client.id": config.consumer_client_id,
+            "group.id": config.group_id,
             "auto.offset.reset": "earliest",
             "enable.auto.commit": True,
         }
 
         consumer = Consumer(consumer_conf)
-        consumer.subscribe([topic])
+        consumer.subscribe([config.topic])
 
         producer_conf = {
-            "bootstrap.servers": f"{brokers}",
-            "client.id": producer_client_id,
+            "bootstrap.servers": brokers,
+            "client.id": config.producer_client_id,
         }
         producer = Producer(producer_conf)
 
-        self.message_filter = MessageFilter(consumer, producer, rse_topics)
+        self.message_filter = MessageFilter(consumer, producer, config.rse_topics)
 
     def run(self):
         """continually process messages"""
