@@ -22,27 +22,28 @@
 import json
 import logging
 
+from confluent_kafka import KafkaError, KafkaException
 from rucio.client import Client
 
 LOGGER = logging.getLogger(__name__)
 
 
 class MessageFilter:
-    RUBIN_BUTLER = "rubin_butler"
-    RUBIN_SIDECAR = "rubin_sidecar"
-
     """Consume Kafka messages, filter the ones marked "transfer-done", and
-    forward them using "dst-rse" as the Kafka topic
+    forward them using "<dst-rse>-<scope>" as the Kafka topic.
 
     Parameters
     ----------
-    consumer: `confluent.kafka.Consumer`
-        Kafka consumer used to recieve messages
-    producer: `confluent.kafka.Producer`
-        Kafka producer used to send messages
-    topics: `list[str]`
-        This of candidate topics
+    consumer : `confluent_kafka.Consumer`
+        Kafka consumer used to receive messages.
+    producer : `confluent_kafka.Producer`
+        Kafka producer used to send messages.
+    topics : `list` [`str`]
+        Destination topics that messages may be forwarded to.
     """
+
+    RUBIN_BUTLER = "rubin_butler"
+    RUBIN_SIDECAR = "rubin_sidecar"
 
     def __init__(self, consumer, producer, topics):
         self.consumer = consumer
@@ -50,7 +51,69 @@ class MessageFilter:
         self.topics = topics
         self.client = Client()
 
-        LOGGER.info(f'Messages will only be sent to kafka topics: "{self.topics}"')
+        LOGGER.info("Messages will only be sent to kafka topics: %s", self.topics)
+
+    @staticmethod
+    def _parse(msg):
+        try:
+            message = json.loads(msg.value())
+        except (TypeError, ValueError) as e:
+            LOGGER.warning(
+                "discarding non-JSON message at %s [%s] @ %s: %s",
+                msg.topic(),
+                msg.partition(),
+                msg.offset(),
+                e,
+            )
+            return None
+        if not isinstance(message, dict) or not isinstance(message.get("event_type"), str):
+            LOGGER.warning(
+                "discarding message without event_type at %s [%s] @ %s",
+                msg.topic(),
+                msg.partition(),
+                msg.offset(),
+            )
+            return None
+        return message
+
+    def _forward(self, message):
+        payload = message["payload"]
+        if not isinstance(payload, dict):
+            LOGGER.warning("transfer-done message has no payload: %s", message)
+            return False
+
+        dst_rse = payload.get("dst-rse")
+        scope = payload.get("scope")
+        name = payload.get("name")
+
+        if not (dst_rse and scope and name):
+            LOGGER.warning("transfer-done payload missing dst_rse/scope/name: %s", payload)
+            return False
+
+        destination = f"{dst_rse}-{scope}"
+        if destination not in self.topics:
+            return False
+
+        metadata = self.client.get_metadata(plugin="ALL", scope=scope, name=name)
+        LOGGER.debug("name and metadata: %s : %s", name, metadata)
+
+        # check to see if this is intended to be ingested
+        # if not, discard it
+        butler_ingest = metadata.get(self.RUBIN_BUTLER)
+        if butler_ingest is None:
+            return False
+        payload[self.RUBIN_BUTLER] = butler_ingest
+
+        # check to see if there's sidecar metadata, and if there is,
+        # include it.
+        butler_sidecar = metadata.get(self.RUBIN_SIDECAR)
+        if butler_sidecar is not None:
+            payload[self.RUBIN_SIDECAR] = butler_sidecar
+
+        # send the message to Kafka
+        self.send_message(topic=destination, message=message)
+
+        return True
 
     def process(self, num_messages, timeout):
         """Process incoming messages.  Waits for num_messages to arrive or
@@ -60,8 +123,8 @@ class MessageFilter:
         ----------
         num_messages: `int`
             Number of messages to receive before returning
-        timeout: `int`
-            Time is seconds to wait until returning
+        timeout: `float`
+            Time in seconds to wait until returning
         """
 
         # read up to self.num_messages, with a timeout of self.timeout
@@ -72,63 +135,38 @@ class MessageFilter:
         # cycle through all the messages, applying the filter rules
         # stated above.
         for msg in messages:
-            # if the event_type isn't 'transfer-done', then ignore this message
-            # and mark it for deletion.
-            if msg.error():
-                raise ValueError(msg.value())
-            message = json.loads(msg.value())
+            err = msg.error()
+            if err is not None:
+                if err.fatal():
+                    raise KafkaException(err)
+                if err.code() != KafkaError._PARTITION_EOF:
+                    LOGGER.warning("consumer error on %s: %s", msg.topic(), err)
+                continue
 
-            if str(message["event_type"]).lower() != "transfer-done":
+            message = self._parse(msg)
+
+            if message is None:
                 discard_count += 1
                 continue
+
+            if message["event_type"].lower() != "transfer-done":
+                discard_count += 1
+                continue
+
             try:
-                # get the destination RSE
-                dst_rse = str(message["payload"].get("dst-rse"))
-                scope = str(message["payload"].get("scope"))
-
-                # create Kakfa topic
-                destination = f"{dst_rse}-{scope}"
-
-                # check to see if the destination RSE is in the list
-                # of topics we're filtering.  If it's not in the list
-                # then discard it and go on to the next messages
-                if self.topics is not None:
-                    if destination not in self.topics:
-                        # this destination RSE wasn't in the list specified
-                        # in rucio.cfg, so discard it and go to the next
-                        # message
-                        discard_count += 1
-                        continue
-
-                # get the metadata for this file
-                name = str(message["payload"].get("name"))
-                metadata = self.client.get_metadata(plugin="ALL", scope=scope, name=name)
-                LOGGER.debug("name and metadata: %s : %s", name, metadata)
-
-                # check to see if this is a intended to be ingested
-                # if not, discard it
-                butler_ingest = metadata.get(self.RUBIN_BUTLER)
-                if butler_ingest is None:
+                if self._forward(message):
+                    msg_count += 1
+                else:
                     discard_count += 1
-                    continue
-                message["payload"][self.RUBIN_BUTLER] = butler_ingest
+            except Exception:
+                LOGGER.exception(
+                    "error forwarding message from %s [%s] @ %s", msg.topic(), msg.partition(), msg.offset()
+                )
 
-                # check to see if there's sidecar metadata, and if there is,
-                # include it.
-                butler_sidecar = metadata.get(self.RUBIN_SIDECAR)
-                if butler_sidecar is not None:
-                    message["payload"][self.RUBIN_SIDECAR] = butler_sidecar
-
-                # send the message to Kafka
-                self.send_message(topic=destination, message=message)
-
-                msg_count += 1
-            except Exception as exc:
-                LOGGER.warning(f"error sending {message}: {exc}")
-
-        if msg_count > 0:
+        if msg_count:
             LOGGER.debug("sent %d messages to Kafka", msg_count)
-        if discard_count > 0:
+
+        if discard_count:
             LOGGER.debug("discarded %d filtered messages", discard_count)
 
     def send_message(self, topic, message):
@@ -147,7 +185,7 @@ class MessageFilter:
             "created_at": str(message["created_at"]),
         }
 
-        LOGGER.debug(f"kafka sending: {message}")
+        LOGGER.debug("kafka sending: %s", message)
         value = json.dumps(d)
         self.producer.produce(topic, key="message", value=value)
         self.producer.flush()

@@ -7,6 +7,7 @@ USER root
 COPY . ctrl_filterd/
 COPY docker/filterd/run.sh /home/lsst/run.sh
 RUN chown lsst:lsst /home/lsst/run.sh
+RUN chmod +x /home/lsst/run.sh
 RUN chown -R lsst:lsst /home/lsst/ctrl_filterd
 RUN mkdir -p /opt/rucio/etc
 
