@@ -24,22 +24,45 @@ from pydantic import BaseModel, Field
 
 
 class Config(BaseModel):
-    brokers: list[str]
-    consumer_client_id: str = Field(default_factory=lambda: "filterd_consumer")
-    producer_client_id: str = Field(default_factory=lambda: "filterd_producer")
-    group_id: str = Field(default_factory=lambda: "filterd_groupid")
-    num_messages: int = 50
-    timeout: int = 1
+    brokers: list[str] = Field(min_length=1)
+    consumer_client_id: str = "filterd_consumer"
+    producer_client_id: str = "filterd_producer"
+    group_id: str = "filterd_groupid"
+    num_messages: int = Field(default=50, ge=1, le=1_000_000)
+    timeout: float = Field(default=1.0, gt=0)
     topic: str
-    rse_topics: list[str]
+    rse_topics: list[str] = Field(min_length=1)
 
     @classmethod
     def load(cls, config_file: str) -> "Config":
+        """Load and validate a configuration file.
+
+        Parameters
+        ----------
+        config_file : `str`
+            Path to the YAML configuration file.
+
+        Returns
+        -------
+        config : `Config`
+            The validated configuration.
+
+        Raises
+        ------
+        OSError
+            Raised if the file cannot be opened.
+        ValueError
+            Raised if the file is not valid YAML or does not contain a
+            mapping.
+        pydantic.ValidationError
+            Raised if the contents fail validation (a subclass of
+            `ValueError`).
+        """
         try:
             with open(config_file) as file:
-                config_dict = yaml.load(file, Loader=yaml.FullLoader)
-            return cls.model_validate(config_dict)
+                config_dict = yaml.safe_load(file)
         except yaml.YAMLError as e:
             raise ValueError(f"Error parsing {config_file}: {e}") from e
-        except Exception as e:
-            raise RuntimeError(f"Unexpected error loading {config_file}: {e}") from e
+        if not isinstance(config_dict, dict):
+            raise ValueError(f"{config_file} must be a valid YAML mapping; got: {type(config_dict).__name__}")
+        return cls.model_validate(config_dict)

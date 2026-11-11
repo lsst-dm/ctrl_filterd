@@ -4,7 +4,7 @@ services:
   filterd:
     container_name: filterd
     environment:
-        - CTRL_FILTERD_CONFIG=/home/lsst/ctrl_filterd/etc/filterd.yml
+        - CTRL_FILTERD_CONFIG=/home/lsst/ctrl_filterd/etc/filterd.yaml
     image: ctrl_filterd
     extra_hosts:
         - "kafka:127.0.0.1"
@@ -16,7 +16,7 @@ services:
   testenv-filterd:
     container_name: testenv-filterd
     environment:
-        - CTRL_FILTERD_CONFIG=/home/lsst/ctrl_filterd/etc/filterd.yml
+        - CTRL_FILTERD_CONFIG=/home/lsst/ctrl_filterd/etc/filterd.yaml
     image: testenv-filterd
     extra_hosts:
         - "kafka:127.0.0.1"

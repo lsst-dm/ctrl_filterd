@@ -21,6 +21,8 @@
 
 import os.path
 
+from pydantic import ValidationError
+
 import lsst.utils.tests
 from lsst.ctrl.filterd.config import Config
 
@@ -33,12 +35,16 @@ class ConfigTestCase(lsst.utils.tests.TestCase):
         self.config = Config.load(config_file)
 
     def testNoRses(self):
-        with self.assertRaises(RuntimeError):
+        with self.assertRaises(ValidationError):
             self.createConfig("notopics.yml")
 
     def testNoBrokers(self):
-        with self.assertRaises(RuntimeError):
+        with self.assertRaises(ValidationError):
             self.createConfig("nobrokers.yml")
+
+    def testMissingFile(self):
+        with self.assertRaises(FileNotFoundError):
+            self.createConfig("does_not_exist.yml")
 
     def testAttributes(self):
         self.createConfig("filterd.yml")

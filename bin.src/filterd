@@ -35,7 +35,7 @@ if filterd_log_var in os.environ:
     log_level_name = os.environ[filterd_log_var]
 
 level_mapping = logging.getLevelNamesMapping()
-log_level = level_mapping.get(log_level_name, logging.INFO)
+log_level = level_mapping.get(log_level_name.upper(), logging.INFO)
 
 LOGGER = logging.getLogger(__name__)
 F = "%(levelname) -10s %(asctime)s.%(msecs)03dZ %(name) -30s %(funcName) -35s %(lineno) -5d: %(message)s"

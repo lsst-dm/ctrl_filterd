@@ -4,10 +4,12 @@ ctrl_filterd
 
 ``ctrl_filterd`` is a daemon that receives Kafka messages from the Rucio Hermes daemon, augments them, and forwards them to ``ctrl_ingestd`` daemons.
 
-The daemon filters all messages it receives, looking for ``transfer-done`` status, which indicates that Rucio has fully transferred a file.  It then looks at the Rucio file, retrieves any metadata associated with it, add it to the Hermes messages, and then forwards it to a Kafka topic. The Kafka topic it uses is specified in the Hermes message under ``dst-rse``.
+The daemon filters all messages it receives, looking for ``transfer-done`` status, which indicates that Rucio has fully transferred a file.  It then looks at the Rucio file, retrieves any metadata associated with that file, adds the metadata to the Hermes message, and then forwards it to a Kafka topic. The Kafka topic it uses is specified in the Hermes message under ``<dst-rse>-<scope>``.
 
 
 The ``ctrl_filterd`` daemon is configured via YAML.  The YAML file ``ctrl_filterd`` uses is specified by setting the environment variable ``CTRL_FILTERD_CONFIG``.
+
+Note that messages without ``rubin_butler`` metadata are dropped.
 
 Example YAML file
 -----------------
@@ -20,7 +22,7 @@ Example YAML file
     producer_client_id: filterd_producer
     group_id: filterd_groupid
     num_messages: 50
-    timeout: 1
+    timeout: 1.0
     topic: hermestopic
     rse_topics: 
          - XRD1-test
@@ -38,7 +40,7 @@ The ``group_id`` is the consumer group id.  Defaults to "filterd_groupid", if no
 
 The ``num_messages`` value is the number of incoming Kafka messages to handle at a time.  Defaults to 50, if not specified
 
-The ``timeout`` the amount of time in seconds to wait for incoming messages before returning and attempting do do work.  Defaults to one second, if not specified
+The ``timeout`` the amount of time in seconds to wait for incoming messages before returning and attempting to do work.  Defaults to one second, if not specified
 
 The ``topic`` value is the Kafka topic on which to expect incoming Hermes Kafka messages.  This should be the same Kafka topic as is set for Hermes.
 
